@@ -1,0 +1,16 @@
+{
+  "name": "拆伙 — 多家庭出游记账与费用分摊",
+  "short_name": "拆伙",
+  "description": "几个家庭一起出游的记账与费用分摊工具：记录每户垫付，一键算出谁该转给谁。",
+  "lang": "zh-CN",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#2f6fed",
+  "theme_color": "#2f6fed",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

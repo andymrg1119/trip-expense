@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="拆伙 —— 多家庭出游记账与费用分摊：记录每户垫付，一键算出谁该转给谁。">
+  <title>拆伙</title>
+  <meta name="theme-color" content="#2f6fed">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- ===================== 顶栏 ===================== -->
+  <header class="app-header no-print">
+    <div class="app-header-main">
+      <h1>拆伙</h1>
+      <p class="hint">多家庭出游记账与费用分摊</p>
+    </div>
+    <div class="trip-box">
+      <span class="trip-label" id="header-trip-name">当前旅程</span>
+      <select id="trip-switcher" class="trip-switch no-print" title="切换旅程" aria-label="切换旅程"></select>
+    </div>
+  </header>
+
+  <!-- ===================== 标签导航 ===================== -->
+  <nav class="tabs no-print" id="tabs-nav">
+    <button class="tab-btn active" data-tab="expenses">费用记录</button>
+    <button class="tab-btn" data-tab="summary">结算汇总</button>
+    <button class="tab-btn" data-tab="families">家庭与成员</button>
+    <button class="tab-btn" data-tab="family-detail">家庭明细</button>
+    <button class="tab-btn" data-tab="data">数据管理</button>
+    <button class="tab-btn" data-tab="trips">我的旅程</button>
+  </nav>
+
+  <main>
+    <!-- ===================== Tab：家庭与成员 ===================== -->
+    <section id="tab-families" class="tab-panel">
+      <div class="card">
+        <h2>新增家庭</h2>
+        <div class="form-row">
+          <input type="text" id="new-family-name" placeholder="家庭名称，如：张家">
+          <button id="add-family-btn" class="btn primary">添加家庭</button>
+        </div>
+      </div>
+
+      <div id="families-container"></div>
+
+      <div class="card">
+        <h2>新增成员</h2>
+        <div class="form-row wrap">
+          <input type="text" id="new-member-name" placeholder="成员姓名">
+          <select id="new-member-family"></select>
+          <select id="new-member-type">
+            <option value="adult">成人</option>
+            <option value="elder">老人</option>
+            <option value="child">小孩</option>
+          </select>
+          <button id="add-member-btn" class="btn primary">添加成员</button>
+        </div>
+        <p class="hint">提示：家庭成员类型会影响「门票分档」「按家庭均摊」的计算，请如实选择。</p>
+      </div>
+    </section>
+
+    <!-- ===================== Tab：费用记录 ===================== -->
+    <section id="tab-expenses" class="tab-panel active">
+      <div class="card">
+        <div class="card-head">
+          <h2>费用记录</h2>
+          <button id="add-expense-btn" class="btn primary">+ 新增费用</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>项目</th>
+                <th>类别</th>
+                <th>原币金额</th>
+                <th>折算(¥)</th>
+                <th>付款人</th>
+                <th>参与人数</th>
+                <th>分摊方式</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="expense-list"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== Tab：结算汇总 ===================== -->
+    <section id="tab-summary" class="tab-panel">
+      <div class="card no-print">
+        <div class="card-head">
+          <h2>结算汇总</h2>
+          <button id="print-btn" class="btn">打印结算单</button>
+        </div>
+        <div id="summary-messages"></div>
+      </div>
+
+      <!-- 可打印区域 -->
+      <div id="print-area">
+        <div id="summary-cards" class="stat-cards"></div>
+
+        <h3 class="section-title">各家庭结算</h3>
+        <div id="family-cards" class="family-cards"></div>
+
+        <h3 class="section-title">转账方案（谁转给谁）</h3>
+        <div id="transfers-container"></div>
+
+        <h3 class="section-title">成员明细</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>成员</th>
+                <th>家庭</th>
+                <th>应分摊(¥)</th>
+                <th>已垫付(¥)</th>
+                <th>净额(¥)</th>
+              </tr>
+            </thead>
+            <tbody id="member-table"></tbody>
+          </table>
+        </div>
+
+        <h3 class="section-title">按币种汇总</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>币种</th>
+                <th>原币已付</th>
+                <th>折算(¥)</th>
+              </tr>
+            </thead>
+            <tbody id="currency-table"></tbody>
+          </table>
+        </div>
+
+        <h3 class="section-title">按类别汇总</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>类别</th>
+                <th>笔数</th>
+                <th>金额(¥)</th>
+              </tr>
+            </thead>
+            <tbody id="category-table"></tbody>
+          </table>
+        </div>
+
+        <h3 class="section-title">每笔费用分摊明细</h3>
+        <div id="per-expense-container"></div>
+
+        <div id="round-note" class="note"></div>
+      </div>
+    </section>
+
+    <!-- ===================== Tab：家庭明细 ===================== -->
+    <section id="tab-family-detail" class="tab-panel">
+      <div class="card">
+        <div class="card-head">
+          <h2>家庭明细</h2>
+        </div>
+        <p class="hint">选择一户家庭，查看它在每一笔费用中分摊了多少、垫付了多少。</p>
+        <div id="family-detail-picker" class="family-picker"></div>
+      </div>
+      <div id="family-detail-body"></div>
+    </section>
+
+    <!-- ===================== Tab：我的旅程 ===================== -->
+    <section id="tab-trips" class="tab-panel">
+      <div class="card">
+        <div class="card-head"><h2>我的旅程</h2></div>
+        <p class="hint">每一次出游都是一个独立旅程，各自的家庭、成员、费用完全分开、互不影响。</p>
+        <div class="form-row wrap">
+          <input type="text" id="new-trip-name" placeholder="新旅程名称，如：2027 泰国游">
+          <button id="new-trip-btn" class="btn primary">新建旅程</button>
+        </div>
+      </div>
+      <div id="trips-container"></div>
+    </section>
+
+    <!-- ===================== Tab：数据管理 ===================== -->
+    <section id="tab-data" class="tab-panel">
+      <div class="card">
+        <h2>行程设置</h2>
+        <div class="form-row">
+          <label class="inline-label" for="trip-name-input">行程名称</label>
+          <input type="text" id="trip-name-input" placeholder="如：2026 日本亲子游">
+        </div>
+        <div class="form-row">
+          <label class="inline-label" for="base-currency-select">基准货币</label>
+          <select id="base-currency-select"></select>
+        </div>
+        <p class="hint">所有费用都会折算成「基准货币」再计算分摊，方便最后统一结算。</p>
+      </div>
+
+      <div class="card">
+        <h2>币种与汇率</h2>
+        <p class="hint">
+          汇率含义：1 单位该币种 ≈ 多少基准货币。例如 100 日元约合 4.85 元，则汇率填 0.0485。
+        </p>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>币种代码</th>
+                <th>名称</th>
+                <th>汇率</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="currency-manage-body"></tbody>
+          </table>
+        </div>
+        <div class="form-row wrap">
+          <input type="text" id="new-cur-code" placeholder="代码，如 JPY">
+          <input type="text" id="new-cur-name" placeholder="名称，如 日元">
+          <input type="number" id="new-cur-rate" placeholder="汇率，如 0.0485" step="0.0001" min="0">
+          <button id="add-cur-btn" class="btn">添加币种</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>费用类别</h2>
+        <p class="hint">类别按旅程独立保存。改名会同步更新已有费用；删除被使用的类别时，相关费用会改归「其他」。</p>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>类别</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="category-manage-body"></tbody>
+          </table>
+        </div>
+        <div class="form-row wrap">
+          <input type="text" id="new-cat-name" placeholder="新类别，如 门票">
+          <button id="add-cat-btn" class="btn">添加类别</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>数据导入 / 导出</h2>
+        <div class="form-row wrap">
+          <button id="export-btn" class="btn">导出 JSON</button>
+          <button id="export-lib-btn" class="btn">导出全部旅程</button>
+          <button id="sample-btn" class="btn">载入示例数据</button>
+          <button id="clear-btn" class="btn danger">清空费用记录</button>
+        </div>
+        <div class="form-row wrap">
+          <input type="file" id="import-file" accept="application/json,.json">
+          <button id="import-btn" class="btn">导入所选文件</button>
+        </div>
+        <p class="hint">
+          数据自动保存在本机浏览器中（不上传云端）。建议定期「导出 JSON」做备份，
+          换设备或分享给同伴时可用「导入」恢复。
+          「导出 JSON」只导出当前旅程；「导出全部旅程」会导出所有旅程（整库备份）。
+          「清空费用记录」只清空当前旅程的费用，家庭与成员、币种汇率、费用类别保留；其它旅程不受影响。
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== 费用新增/编辑弹窗 ===================== -->
+  <div id="expense-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="expense-modal-title">新增费用</h2>
+        <button id="expense-close-btn" class="btn icon" title="关闭">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="grid2">
+          <label class="field">
+            <span>日期</span>
+            <input type="date" id="exp-date">
+          </label>
+          <label class="field">
+            <span>项目名称</span>
+            <input type="text" id="exp-title" placeholder="如：环球影城门票">
+          </label>
+          <label class="field">
+            <span>类别</span>
+            <select id="exp-category"></select>
+          </label>
+          <label class="field">
+            <span>付款人</span>
+            <select id="exp-payer"></select>
+          </label>
+          <label class="field">
+            <span>币种</span>
+            <select id="exp-currency"></select>
+          </label>
+          <label class="field">
+            <span>金额（原币）</span>
+            <input type="number" id="exp-amount" step="0.01" min="0" placeholder="0.00">
+          </label>
+          <label class="field">
+            <span>汇率（1 外币 = ? 基准币）</span>
+            <input type="number" id="exp-rate" step="0.0001" min="0" placeholder="1">
+          </label>
+          <label class="field">
+            <span>分摊方式</span>
+            <select id="exp-splitmode">
+              <option value="equal">按人头均摊</option>
+              <option value="ticket">门票分档（成人/老人/小孩）</option>
+              <option value="room">酒店按房间分摊</option>
+              <option value="family">按家庭均摊</option>
+              <option value="custom">自定义金额</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field block">
+          <span>备注（可选）</span>
+          <input type="text" id="exp-note" placeholder="补充说明">
+        </label>
+
+        <fieldset class="fieldset">
+          <legend>参与成员（按家庭勾选，未勾选的不参与本笔分摊）</legend>
+          <div id="participants-container"></div>
+        </fieldset>
+
+        <div id="split-ticket" class="split-section hidden">
+          <fieldset class="fieldset">
+            <legend>门票分档单价（原币）</legend>
+            <div class="grid3">
+              <label class="field">
+                <span>成人单价</span>
+                <input type="number" id="price-adult" step="0.01" min="0">
+              </label>
+              <label class="field">
+                <span>老人单价</span>
+                <input type="number" id="price-elder" step="0.01" min="0">
+              </label>
+              <label class="field">
+                <span>小孩单价</span>
+                <input type="number" id="price-child" step="0.01" min="0">
+              </label>
+            </div>
+            <p class="hint">按每个参与成员的「类型」定价累加；若单价合计与项目总额不一致，会自动按比例调整并提示。</p>
+          </fieldset>
+        </div>
+
+        <div id="split-room" class="split-section hidden">
+          <fieldset class="fieldset">
+            <legend>房间与入住人（每间房价在其入住人之间均分）</legend>
+            <div id="rooms-container"></div>
+            <button type="button" id="add-room-btn" class="btn small">+ 添加房间</button>
+          </fieldset>
+        </div>
+
+        <div id="split-custom" class="split-section hidden">
+          <fieldset class="fieldset">
+            <legend>每人金额（原币）</legend>
+            <div id="custom-container"></div>
+            <div id="custom-diff" class="note"></div>
+          </fieldset>
+        </div>
+
+        <div id="expense-preview" class="preview"></div>
+      </div>
+
+      <div class="modal-foot">
+        <button id="expense-cancel-btn" class="btn">取消</button>
+        <button id="expense-save-btn" class="btn primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 页内提示条（替代原生 alert） ===================== -->
+  <div id="toast-container" class="toast-container no-print" aria-live="polite"></div>
+
+  <!-- ===================== 页内确认对话框（替代原生 confirm） ===================== -->
+  <div id="confirm-modal" class="modal-overlay hidden no-print">
+    <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <div class="modal-head">
+        <h2 id="confirm-modal-title">请确认</h2>
+        <button id="confirm-close-btn" class="btn icon" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-modal-message" class="confirm-message"></p>
+      </div>
+      <div class="modal-foot">
+        <button id="confirm-cancel-btn" class="btn">取消</button>
+        <button id="confirm-ok-btn" class="btn primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="calc.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // PWA：仅在 http(s) 下注册 Service Worker（file:// 双击打开时不注册，避免报错）
+    if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function (err) {
+          console.warn('Service Worker 注册失败（不影响使用）：', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
