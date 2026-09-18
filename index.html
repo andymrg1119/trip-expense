@@ -254,6 +254,7 @@
           <button id="export-btn" class="btn">导出 JSON</button>
           <button id="export-lib-btn" class="btn">导出全部旅程</button>
           <button id="sample-btn" class="btn">载入示例数据</button>
+          <button id="restore-btn" class="btn">恢复上次备份</button>
           <button id="clear-btn" class="btn danger">清空费用记录</button>
         </div>
         <div class="form-row wrap">
@@ -265,6 +266,10 @@
           换设备或分享给同伴时可用「导入」恢复。
           「导出 JSON」只导出当前旅程；「导出全部旅程」会导出所有旅程（整库备份）。
           「清空费用记录」只清空当前旅程的费用，家庭与成员、币种汇率、费用类别保留；其它旅程不受影响。
+          每次修改前系统会自动留一份「上次备份」，误删可用「恢复上次备份」回退。
+          「载入示例数据」只在你点击时**新增**一个示例旅程，绝不会自动出现、也不影响已有旅程。
+          注意：数据按「网址」分别保存——换了网址（例如从本机文件换成线上地址）会看到一份新的空白数据，
+          此时请从旧网址「导出全部旅程」再在新网址「导入」，即可迁移。
         </p>
       </div>
     </section>

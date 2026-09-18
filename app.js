@@ -14,6 +14,10 @@
   // v2：多旅程库（{version:2, activeTripId, trips:[...]}）；v1：旧的单行程键（只读，仅用于一次性迁移，永不删除）
   var STORAGE_KEY_V2 = 'trip-expense-data-v2';
   var STORAGE_KEY_V1 = 'trip-expense-data-v1';
+  // 安全备份键：每次会话首次写盘前，把上一份 v2 原文留底（只增不删）；解析异常时也存这里。
+  // 目的：任何「版本更新 / 误操作 / 数据损坏」都不得让用户已录入的数据消失。
+  var BACKUP_KEY = 'trip-expense-data-v2-backup';
+  var backupTaken = false;             // 本次会话是否已留过底（同一会话只留一份，开销可忽略）
   var TYPE_LABELS = { adult: '成人', elder: '老人', child: '小孩' };
   var MODE_LABELS = {
     equal: '按人头均摊',
@@ -31,7 +35,7 @@
   //                    state.data === findTrip(state.library, state.library.activeTripId)
   //                    因此下面所有 state.data.families/.members/.expenses/.currencies/.tripName
   //                    的渲染与操作代码完全无需改动。切换旅程只换引用 + renderAll()。
-  var state = { library: null, data: null };
+  var state = { library: null, data: null, loadBroken: false };
   // 当前正在编辑的费用草稿（弹窗内使用）
   var draft = null;
 
@@ -332,6 +336,22 @@
     };
   }
 
+  /**
+   * 向前兼容护栏：把 src 上「out 未声明的自有键」原样搬回 out。
+   * 规范化的职责是「补默认值」，不是「白名单过滤」——否则将来某版新增的字段，
+   * 被旧版逻辑一规范化就会永久丢失。加了这个，迁移与刷新都只增不减。
+   */
+  function preserveUnknown(src, out) {
+    if (!src || typeof src !== 'object') return out;
+    for (var k in src) {
+      if (Object.prototype.hasOwnProperty.call(src, k)
+        && !Object.prototype.hasOwnProperty.call(out, k)) {
+        out[k] = src[k];
+      }
+    }
+    return out;
+  }
+
   /** 规范化单笔费用，保证字段齐全、类型正确。 */
   function normalizeExpense(d) {
     d = d || {};
@@ -343,7 +363,7 @@
         custom[k] = isFinite(v) ? v : 0;
       });
     }
-    return {
+    return preserveUnknown(d, {
       id: d.id || C.newId(),
       date: d.date || '',
       title: d.title || '',
@@ -354,22 +374,22 @@
       payerMemberId: d.payerMemberId || '',
       splitMode: d.splitMode || 'equal',
       participants: Array.isArray(d.participants) ? d.participants.slice() : [],
-      prices: {
+      prices: preserveUnknown(prices, {
         adult: Number(prices.adult) || 0,
         elder: Number(prices.elder) || 0,
         child: Number(prices.child) || 0
-      },
+      }),
       rooms: Array.isArray(d.rooms) ? d.rooms.map(function (r) {
         r = r || {};
-        return {
+        return preserveUnknown(r, {
           name: r.name || '',
           price: Number(r.price) || 0,
           occupants: Array.isArray(r.occupants) ? r.occupants.slice() : []
-        };
+        });
       }) : [],
       customAmounts: custom,
       note: d.note || ''
-    };
+    });
   }
 
   /** 规范化整份数据。 */
@@ -383,7 +403,7 @@
           .filter(function (s) { return s !== ''; })
       : [];
     if (!cats.length) cats = DEFAULT_CATEGORIES.slice();
-    return {
+    return preserveUnknown(obj, {
       version: obj.version || 1,
       tripName: obj.tripName || '我的家庭出游',
       baseCurrency: obj.baseCurrency || 'CNY',
@@ -391,24 +411,24 @@
       currencies: Array.isArray(obj.currencies) && obj.currencies.length
         ? obj.currencies.map(function (c) {
           c = c || {};
-          return { code: c.code || 'CNY', name: c.name || c.code || '人民币', rate: Number(c.rate) || 1 };
+          return preserveUnknown(c, { code: c.code || 'CNY', name: c.name || c.code || '人民币', rate: Number(c.rate) || 1 });
         })
         : [{ code: 'CNY', name: '人民币', rate: 1 }],
       families: Array.isArray(obj.families) ? obj.families.map(function (f) {
         f = f || {};
-        return { id: f.id || C.newId(), name: f.name || '未命名家庭' };
+        return preserveUnknown(f, { id: f.id || C.newId(), name: f.name || '未命名家庭' });
       }) : [],
       members: Array.isArray(obj.members) ? obj.members.map(function (m) {
         m = m || {};
-        return {
+        return preserveUnknown(m, {
           id: m.id || C.newId(),
           familyId: m.familyId || '',
           name: m.name || '未命名',
           type: (m.type === 'elder' || m.type === 'child') ? m.type : 'adult'
-        };
+        });
       }) : [],
       expenses: Array.isArray(obj.expenses) ? obj.expenses.map(normalizeExpense) : []
-    };
+    });
   }
 
   // ===========================================================================
@@ -480,7 +500,7 @@
       if (lib.trips[i].id === lib.activeTripId) { ok = true; break; }
     }
     if (!ok) lib.activeTripId = lib.trips[0].id;
-    return lib;
+    return preserveUnknown(obj, lib);
   }
 
   /** 按 id 查找旅程（ES5 风格，返回对象引用本身）。 */
@@ -511,9 +531,27 @@
   // ===========================================================================
 
   function save() {
+    var json;
     try {
-      // 新键 v2：整个旅程库；旧键 v1 只读保留、永不删除（迁移后仍可回退）
-      window.localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(state.library));
+      json = JSON.stringify(state.library);
+    } catch (e) {
+      if (!storageWarned) {
+        storageWarned = true;
+        showToast('数据序列化失败，本次修改未保存。请立即用「导出全部旅程」备份。', 'error');
+      }
+      return;
+    }
+    try {
+      // 安全备份：本次会话首次写盘前，把上一份 v2 原文留底，便于「恢复上次备份」
+      if (!backupTaken) {
+        backupTaken = true;
+        var prev = window.localStorage.getItem(STORAGE_KEY_V2);
+        if (prev && prev !== json) window.localStorage.setItem(BACKUP_KEY, prev);
+      }
+    } catch (e) { /* 备份失败不影响正常保存 */ }
+    try {
+      // 新键 v2：整个旅程库；旧键 v1 与备份键都只增不删、永不清理
+      window.localStorage.setItem(STORAGE_KEY_V2, json);
     } catch (e) {
       // file:// 下个别浏览器会禁用 localStorage：必须给用户看得见的提示，绝不静默失败
       if (!storageWarned) {
@@ -525,27 +563,120 @@
   }
 
   /**
-   * 载入：优先 v2；无 v2 时用 v1 做**一次性、幂等**迁移；两者皆无则用示例内容建单旅程。
-   * 无论哪条路径，v1 键都**绝不删除**。
+   * 载入：优先 v2；无 v2 时用 v1 做**一次性、幂等**迁移；两者皆无 → **空白旅程**。
+   *
+   * 两条铁律（版本更新绝不丢数据）：
+   *  1) **绝不自动灌入示例数据**：全新地址（新 origin）首次打开只建一个空旅程；
+   *     示例内容只能由用户点「载入示例数据」显式添加，且是新增、不影响已有旅程。
+   *  2) **解析失败绝不覆盖原数据**：v2 存在但读不出来时，先把原文原样存进 BACKUP_KEY，
+   *     再以空旅程在内存中启动；原文保留在本机，用户可导出留底。
+   * 无论哪条路径，v1 键与备份键都**绝不删除**。
    */
   function load() {
     var raw2 = null;
     try { raw2 = window.localStorage.getItem(STORAGE_KEY_V2); } catch (e) { raw2 = null; }
+
     if (raw2) {
-      try { state.library = normalizeLibrary(JSON.parse(raw2)); } catch (e) { state.library = null; }
-    }
-    if (!state.library) {
-      var raw1 = null;
-      try { raw1 = window.localStorage.getItem(STORAGE_KEY_V1); } catch (e) { raw1 = null; }
-      var trip = null;
-      if (raw1) {
-        try { trip = normalizeData(JSON.parse(raw1)); } catch (e) { trip = null; }
+      var lib = null;
+      try { lib = normalizeLibrary(JSON.parse(raw2)); } catch (e) { lib = null; }
+      if (lib) {
+        state.library = lib;
+      } else {
+        // 读不出来 → 备份原文 + 内存空库启动，绝不把原数据覆盖掉
+        try { window.localStorage.setItem(BACKUP_KEY, raw2); } catch (e2) { /* ignore */ }
+        state.library = normalizeLibrary({ version: 2, activeTripId: '', trips: [] });
+        state.loadBroken = true;
       }
-      // v1 解析失败时兜底示例内容，但旧键依旧保留不动
-      state.library = migrateV1toV2(trip || defaultData());
-      save();
+      state.data = activeTripRef(state.library);
+      return;
     }
+
+    // 无 v2：尝试一次性迁移 v1（迁移成功后写 v2，v1 保留不动）
+    var raw1 = null;
+    try { raw1 = window.localStorage.getItem(STORAGE_KEY_V1); } catch (e) { raw1 = null; }
+    if (raw1) {
+      var trip = null;
+      try { trip = normalizeData(JSON.parse(raw1)); } catch (e) { trip = null; }
+      if (trip) {
+        state.library = migrateV1toV2(trip);
+        state.data = activeTripRef(state.library);
+        save();
+        return;
+      }
+      // v1 存在但读不出来：同样只备份、不覆盖
+      try { window.localStorage.setItem(BACKUP_KEY, raw1); } catch (e3) { /* ignore */ }
+      state.loadBroken = true;
+    }
+
+    // 全新用户（本机无任何历史数据）：建**空白旅程**，绝不灌示例数据
+    state.library = normalizeLibrary({ version: 2, activeTripId: '', trips: [] });
     state.data = activeTripRef(state.library);
+    save();
+  }
+
+  /** 备份键里是否有内容（供「恢复上次备份」按钮做可用性判断）。 */
+  function hasBackup() {
+    try { return !!window.localStorage.getItem(BACKUP_KEY); } catch (e) { return false; }
+  }
+
+  /**
+   * 恢复上次备份：把数据回滚到「本次打开页面时」的状态。
+   * 典型用途：误删旅程/费用后一键回退。属破坏性操作，必须页内二次确认。
+   */
+  function restoreBackup() {
+    var raw = null;
+    try { raw = window.localStorage.getItem(BACKUP_KEY); } catch (e) { raw = null; }
+    if (!raw) { showToast('没有可恢复的备份（备份会在你首次修改数据时自动生成）。', 'error'); return; }
+    var lib = null;
+    try { lib = normalizeLibrary(JSON.parse(raw)); } catch (e) { lib = null; }
+    if (!lib) {
+      showToast('备份内容已损坏，无法自动恢复。建议先用「导出全部旅程」把原始数据留底。', 'error');
+      return;
+    }
+    confirmDialog({
+      title: '恢复上次备份',
+      message: '将把数据回滚到本次打开页面时的状态，之后未备份的改动会被覆盖。确定继续吗？',
+      confirmText: '恢复',
+      cancelText: '取消',
+      danger: true
+    }, function (ok) {
+      if (!ok) return;
+      state.library = lib;
+      state.data = activeTripRef(state.library);
+      save();
+      renderAll();
+      showToast('已恢复上次备份。', 'success');
+    });
+  }
+
+  /** 判断某旅程是否「逐字段等同于」内置示例（用于清理早期版本自动灌入的示例数据）。 */
+  function isBuiltinSampleTrip(t) {
+    if (!t || t.tripName !== '2026 日本亲子游') return false;
+    var fams = (t.families || []).map(function (f) { return f.name; });
+    var sampleFams = ['张家', '李家', '王家'];
+    if (fams.length !== sampleFams.length) return false;
+    for (var i = 0; i < sampleFams.length; i++) {
+      if (fams[i] !== sampleFams[i]) return false;
+    }
+    return (t.members || []).length === 8 && (t.expenses || []).length === 7;
+  }
+
+  /**
+   * 一次性清理：删除早期版本「首次打开自动灌入」的示例旅程。
+   * 触发条件极严——**整个库只有 1 个旅程**、且它逐字段等于内置示例。
+   * 用户一旦改过名/增删过内容/多建了旅程，就不再匹配，绝不误删真实数据。
+   * 清理前的旧状态会由 save() 自动留进备份键，可「恢复上次备份」找回。
+   */
+  function purgeAutoSeededSample() {
+    var lib = state.library;
+    if (!lib || lib.trips.length !== 1) return false;
+    if (!isBuiltinSampleTrip(lib.trips[0])) return false;
+    var fresh = createEmptyTrip('我的旅程');
+    lib.trips = [fresh];
+    lib.activeTripId = fresh.id;
+    state.data = fresh;
+    save();
+    return true;
   }
 
   // ===========================================================================
@@ -2553,6 +2684,7 @@
     $('export-lib-btn').addEventListener('click', exportLibrary);
     $('import-btn').addEventListener('click', importData);
     $('sample-btn').addEventListener('click', loadSample);
+    $('restore-btn').addEventListener('click', restoreBackup);
     $('clear-btn').addEventListener('click', clearAll);
     $('add-cur-btn').addEventListener('click', addCurrency);
     $('add-cat-btn').addEventListener('click', addCategory);
@@ -2628,9 +2760,18 @@
 
   function init() {
     load();
+    // 清理早期版本自动灌入的示例数据（仅当整库只有那一条示例时才动手）
+    var purgedSample = purgeAutoSeededSample();
     initTabs();
     bindEvents();
     renderAll();
+    // 启动时若已保存数据读不出来：明确告知「未做任何覆盖」，并给出留底路径
+    if (state.loadBroken) {
+      showToast('读取本机已保存的数据失败。为避免覆盖你的原始数据，本次启动未写入任何内容'
+        + '（原数据仍留在本机）。请到「数据管理」用「导出全部旅程」先留底。', 'error');
+    } else if (purgedSample) {
+      showToast('已自动清除早前版本自动生成的示例数据（当前为空白旅程）。', 'success');
+    }
   }
 
   if (document.readyState === 'loading') {
