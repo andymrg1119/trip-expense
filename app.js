@@ -1077,6 +1077,11 @@
       tr.appendChild(td(modeLabel(ex.splitMode)));
 
       var actTd = document.createElement('td');
+      var dup = el('button', 'btn small', '复制');
+      dup.type = 'button';
+      dup.title = '照搬这笔费用，保存后新增一条';
+      dup.addEventListener('click', function () { duplicateExpense(ex.id); });
+      actTd.appendChild(dup);
       var edit = el('button', 'btn small', '编辑');
       edit.addEventListener('click', function () { openExpenseModal(ex.id); });
       actTd.appendChild(edit);
@@ -1903,9 +1908,30 @@
       }
     }
     draft = existing ? deepCopy(normalizeExpense(existing)) : blankExpense();
+    fillExpenseModalForm(existing ? '编辑费用' : '新增费用');
+  }
+
+  /**
+   * 复制一笔费用：所有字段（分摊方式、参与人、票价、房间、自定义金额、备注、汇率…）照搬，
+   * 但**换成一个新 id** —— 保存时走「新增」分支追加一条，原记录分毫不动。
+   * 用途：同一项目反复发生（只换日期 / 人数 / 金额），不必从头再填一遍。
+   */
+  function duplicateExpense(id) {
+    var src = null;
+    for (var i = 0; i < state.data.expenses.length; i++) {
+      if (state.data.expenses[i].id === id) { src = state.data.expenses[i]; break; }
+    }
+    if (!src) return;
+    draft = deepCopy(normalizeExpense(src));
+    draft.id = C.newId();          // 关键：新 id → 保存即新增
+    fillExpenseModalForm('复制费用（保存后新增一条）');
+  }
+
+  /** 按当前 draft 填充弹窗表单并显示；标题由调用方决定。 */
+  function fillExpenseModalForm(title) {
     roomConfirmed = []; // 重置瞬态标记：新会话下所有房间都「未确认」
 
-    $('expense-modal-title').textContent = existing ? '编辑费用' : '新增费用';
+    $('expense-modal-title').textContent = title;
 
     // 先填静态字段
     $('exp-date').value = draft.date || todayStr();

@@ -5,7 +5,7 @@
  *   · 图片等静态资源：缓存优先（很少变动）。
  * ⚠️ 发布新版本时请同时提升 CACHE 版本号：activate 会据此清掉旧缓存。
  */
-const CACHE = 'chaipo-v2';
+const CACHE = 'chaipo-v3';
 const ASSETS = [
   './',
   './index.html',
